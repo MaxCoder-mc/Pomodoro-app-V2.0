@@ -138,7 +138,7 @@
       isRunning = false;
       toggleBtn.setAttribute("aria-pressed", "false");
 
-      playSound(mode);
+      // playSound(mode);
 
       if (autoCycleEnabled) {
         setTimeout(() => {
@@ -395,18 +395,72 @@
     }
   } catch (e) {}
 
-  // ====== SOUND EFFECTS ======
+  // ====== SOUND / SPEECH FEEDBACK ======
+
+  // Lazy-load old audio assets only if needed
   const sounds = {
-    pomodoro: new Audio("./assets/pomodoro.mp3"),
-    shortBreak: new Audio("./assets/shortBreak.mp3"),
-    longBreak: new Audio("./assets/longBreak.mp3"),
+    pomodoro: null,
+    shortBreak: null,
+    longBreak: null,
   };
 
+  function getSound(mode) {
+    if (!sounds[mode]) {
+      sounds[mode] = new Audio(`./assets/${mode}.mp3`);
+    }
+    return sounds[mode];
+  }
+
+  function speakMessage(message) {
+    if (!("speechSynthesis" in window)) return false; // unsupported
+
+    // Cancel any ongoing speech to prevent overlap
+    window.speechSynthesis.cancel();
+
+    const utterance = new SpeechSynthesisUtterance(message);
+    utterance.lang = "en-US";
+    utterance.rate = 1; // adjust 0.8–1.2 for pace preference
+    utterance.pitch = 1; // natural tone
+    utterance.volume = 1; // obey your soundEnabled flag
+
+    try {
+      window.speechSynthesis.speak(utterance);
+      return true; // speech succeeded
+    } catch (e) {
+      return false;
+    }
+  }
+
   function playSound(mode) {
-    const audio = sounds[mode];
-    if (!soundEnabled || !audio) return;
-    audio.currentTime = 0;
-    audio.play().catch(() => {});
+    if (!soundEnabled) return;
+
+    // Determine message
+    let message = "";
+    switch (mode) {
+      case "pomodoro":
+        message = "It's time to focus.";
+        break;
+      case "shortBreak":
+        message = "It's time to take a short break.";
+        break;
+      case "longBreak":
+        message = "It's time to take a long break.";
+        break;
+      default:
+        message = "Timer complete.";
+    }
+
+    // Try speech synthesis first
+    const spoken = speakMessage(message);
+
+    // Fallback to audio if speech not supported or failed
+    if (!spoken) {
+      const audio = getSound(mode);
+      if (audio) {
+        audio.currentTime = 0;
+        audio.play().catch(() => {});
+      }
+    }
   }
 
   updateDisplay();
