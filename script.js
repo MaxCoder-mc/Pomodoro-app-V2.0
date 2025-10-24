@@ -155,7 +155,7 @@
           resetTimer();
           playSound(mode);
           startTimer();
-        }, 5000);
+        }, 1000);
       } else {
         toggleBtn.textContent = "RESTART";
         toggleBtn.focus();
