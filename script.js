@@ -395,22 +395,13 @@
     }
   } catch (e) {}
 
-  // ====== SOUND / SPEECH FEEDBACK ======
-
-  // ====== SPEECH / SOUND FEEDBACK (multilingual) ======
-  //
-  // This module handles all end-of-session feedback:
-  // 1. Tries to use Text-to-Speech (TTS) in the user’s system language
-  // 2. Falls back to pre-recorded audio if TTS is unavailable
-  // 3. Dynamically announces session type and duration (for breaks)
-
-  // ----- 1. AUDIO FALLBACK (used only if TTS unavailable) -----
+   // ====== SPEECH / SOUND FEEDBACK (multilingual) ======
+  // Audio fallback (if speech unsupported)
   const sounds = {
     pomodoro: null,
     shortBreak: null,
     longBreak: null,
   };
-
   /**
    * Lazily loads the corresponding sound file for a given mode.
    * Avoids preloading all files at startup to improve performance.
@@ -420,12 +411,7 @@
     return sounds[mode];
   }
 
-  // ----- 2. LANGUAGE DETECTION -----
-  /**
-   * Attempts to detect the browser or system language.
-   * Fallback chain:
-   *   navigator.language → userLanguage (IE) → <html lang> → "en-US"
-   */
+  // Detect browser/system language
   function detectLanguage() {
     return (
       navigator.language ||
@@ -435,13 +421,7 @@
     );
   }
 
-  // ----- 3. PHRASE DICTIONARY -----
-  /**
-   * Static dictionary mapping ISO language codes to
-   * localized feedback phrases. Extendable with more languages.
-   *
-   * Each key can be either a string or a function accepting `minutes`.
-   */
+  // Phrase dictionary (extendable, plural-aware)
   const ttsPhrases = {
     en: {
       focus: "It's time to focus.",
@@ -482,47 +462,43 @@
     ar: {
       focus: "حان وقت التركيز.",
       short: (m) =>
-        `حان وقت أخذ استراحة لمدة ${m} ${
-          m === 1 ? "دقيقة" : m === 2 ? "دقيقتين" : "دقائق"
+        `حان وقت أخذ استراحة لمدة ${
+          m === 1
+            ? "دقيقة"
+            : m === 2
+            ? "دقيقتين"
+            : m >= 3 && m <= 10
+            ? `${m} دقائق`
+            : `${m} دقيقة`
         }.`,
       long: (m) =>
-        `حان وقت أخذ استراحة طويلة لمدة ${m} ${
-          m === 1 ? "دقيقة" : m === 2 ? "دقيقتين" : "دقائق"
+        `حان وقت أخذ استراحة طويلة لمدة ${
+          m === 1
+            ? "دقيقة"
+            : m === 2
+            ? "دقيقتين"
+            : m >= 3 && m <= 10
+            ? `${m} دقائق`
+            : `${m} دقيقة`
         }.`,
     },
   };
 
-  // ----- 4. PHRASE SELECTION -----
-  /**
-   * Returns the localized phrase for the given mode and duration.
-   *
-   * @param {string} langCode - full language tag, e.g., "fr-FR"
-   * @param {string} mode - one of: "pomodoro", "shortBreak", "longBreak"
-   * @param {number} minutes - number of minutes (used for break messages)
-   */
+  // Get the correct phrase based on language and mode
   function getPhrase(langCode, mode, minutes) {
-    const base = langCode.split("-")[0]; // Extract base code, e.g., "fr"
-    const phrases = ttsPhrases[base] || ttsPhrases["en"]; // Fallback to English
+    const base = langCode.split("-")[0]; // e.g., "fr-FR" → "fr"
+    const phrases = ttsPhrases[base] || ttsPhrases["en"];
     if (mode === "pomodoro") return phrases.focus;
     if (mode === "shortBreak") return phrases.short(minutes);
     if (mode === "longBreak") return phrases.long(minutes);
     return "Timer complete.";
   }
 
-  // ----- 5. SPEECH SYNTHESIS -----
-  /**
-   * Uses the Web Speech API to speak the provided message
-   * in the best matching system voice for the detected language.
-   *
-   * @param {string} message - The text to speak
-   * @param {string} lang - The language code, e.g., "en-US"
-   * @returns {boolean} - true if speech started successfully
-   */
+  // Speak a message using SpeechSynthesis
   function speakMessage(message, lang) {
-    // If TTS unsupported, abort
     if (!("speechSynthesis" in window)) return false;
 
-    // Cancel any pending speech
+    // Cancel any ongoing speech
     window.speechSynthesis.cancel();
 
     const utterance = new SpeechSynthesisUtterance(message);
@@ -530,12 +506,18 @@
     utterance.rate = 1;
     utterance.pitch = 1;
 
-    // Try to find the closest matching system voice
-    const voices = speechSynthesis.getVoices();
-    const voice =
-      voices.find((v) => v.lang.toLowerCase().startsWith(lang.toLowerCase())) ||
+    // Get all available voices
+    let voices = speechSynthesis.getVoices();
+
+    // Try to find a voice that matches exactly
+    let voice =
+      voices.find((v) => v.lang.toLowerCase() === lang.toLowerCase()) ||
+      // fallback: match language prefix (e.g., "ar" for Arabic)
+      voices.find((v) => v.lang.toLowerCase().startsWith(lang.split("-")[0])) ||
+      // fallback: English
       voices.find((v) => v.lang.startsWith("en")) ||
       voices[0];
+
     if (voice) utterance.voice = voice;
 
     try {
@@ -546,28 +528,13 @@
     }
   }
 
-  // Preload voices once they become available (some browsers are async)
-  if ("speechSynthesis" in window) {
-    speechSynthesis.onvoiceschanged = () => {
-      // Preload voices to make sure speakMessage works immediately
-      speechSynthesis.getVoices();
-    };
-  }
-
-  // ----- 6. MASTER PLAY FUNCTION -----
-  /**
-   * Called when a session ends.
-   * Determines the message, language, and playback method:
-   * 1. Speak message using TTS if available
-   * 2. Fall back to a local audio file if TTS fails
-   */
+  // Play sound or TTS depending on availability
   function playSound(mode) {
     if (!soundEnabled) return;
 
-    // Detect language dynamically (system / keyboard)
     const lang = detectLanguage();
 
-    // Compute break duration in minutes (if applicable)
+    // Compute minutes for breaks
     const minutes =
       mode === "shortBreak"
         ? Math.round(durations.shortBreak / 60)
@@ -575,13 +542,13 @@
         ? Math.round(durations.longBreak / 60)
         : 0;
 
-    // Get localized message for the mode
+    // Get the appropriate phrase
     const message = getPhrase(lang, mode, minutes);
 
-    // Attempt to speak message via system TTS
+    // Try TTS first
     const spoken = speakMessage(message, lang);
 
-    // Fallback: play pre-recorded audio
+    // Fallback to audio file if TTS unavailable
     if (!spoken) {
       const audio = getSound(mode);
       if (audio) {
@@ -590,7 +557,8 @@
       }
     }
   }
-
+  
   // Initial display update
   updateDisplay();
 })();
+
