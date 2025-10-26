@@ -115,7 +115,14 @@
   }
   refreshTabAria();
 
-  // ====== TIMER LOGIC ======
+  // ====== TIMER LOGIC (timestamp-based, accurate even when inactive) ======
+  let startTime = null;
+  let endTime = null;
+
+  /**
+   * Updates the timer display and progress ring based on remaining seconds.
+   * Ensures the circular progress matches the current time left.
+   */
   function updateDisplay() {
     const minutes = Math.floor(remaining / 60);
     const seconds = remaining % 60;
@@ -128,11 +135,16 @@
     circle.style.strokeDashoffset = offset;
   }
 
+  /**
+   * Called every second to compute remaining time from endTime.
+   * This approach stays accurate even if the tab is minimized or throttled.
+   */
   function tick() {
-    if (remaining > 0) {
-      remaining -= 1;
-      updateDisplay();
-    } else {
+    const now = Date.now();
+    remaining = Math.max(0, Math.round((endTime - now) / 1000));
+    updateDisplay();
+
+    if (remaining <= 0) {
       clearInterval(timer);
       timer = null;
       isRunning = false;
@@ -140,6 +152,7 @@
 
       // playSound(mode);
 
+      // Handle auto-cycle (continuous Pomodoro flow)
       if (autoCycleEnabled) {
         setTimeout(() => {
           if (mode === "pomodoro") {
@@ -163,8 +176,14 @@
     }
   }
 
+  /**
+   * Starts the timer if not already running.
+   * Uses Date.now() to compute a reliable target end time.
+   */
   function startTimer() {
     if (!isRunning) {
+      startTime = Date.now();
+      endTime = startTime + remaining * 1000;
       timer = setInterval(tick, 1000);
       isRunning = true;
       toggleBtn.textContent = "PAUSE";
@@ -172,24 +191,37 @@
     }
   }
 
+  /**
+   * Pauses the timer and preserves remaining time.
+   * The difference between now and endTime determines how much time is left.
+   */
   function pauseTimer() {
+    if (isRunning) {
+      clearInterval(timer);
+      timer = null;
+      isRunning = false;
+      remaining = Math.max(0, Math.round((endTime - Date.now()) / 1000));
+      toggleBtn.textContent = "START";
+      toggleBtn.setAttribute("aria-pressed", "false");
+    }
+  }
+
+  /**
+   * Resets the timer to the full duration for the current mode.
+   * Clears any running interval and updates UI state.
+   */
+  function resetTimer() {
     clearInterval(timer);
     timer = null;
     isRunning = false;
-    toggleBtn.textContent = "START";
-    toggleBtn.setAttribute("aria-pressed", "false");
-  }
-
-  function resetTimer() {
-    clearInterval(timer);
     remaining = durations[mode];
     updateDisplay();
     circle.style.strokeDashoffset = circumference;
     toggleBtn.textContent = "START";
     toggleBtn.setAttribute("aria-pressed", "false");
-    isRunning = false;
   }
 
+  // ====== EVENT LISTENERS ======
   toggleBtn.addEventListener("click", () => {
     if (!isRunning && remaining > 0) startTimer();
     else if (isRunning) pauseTimer();
@@ -395,7 +427,8 @@
     }
   } catch (e) {}
 
-   // ====== SPEECH / SOUND FEEDBACK (multilingual) ======
+  // ====== SPEECH / SOUND FEEDBACK (multilingual) ======
+
   // Audio fallback (if speech unsupported)
   const sounds = {
     pomodoro: null,
@@ -557,8 +590,7 @@
       }
     }
   }
-  
+
   // Initial display update
   updateDisplay();
 })();
-
